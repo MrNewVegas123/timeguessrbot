@@ -1,0 +1,27 @@
+# Fly.io config. Deploy with: fly launch (first time) then fly deploy
+#
+# Fly asks you to pick an app name and region the first time you run
+# `fly launch` — it will generate/overwrite this file for you. This version
+# is a reasonable starting point if you'd rather write it by hand.
+
+app = "timeguessr-bot"        # change to whatever's available
+primary_region = "syd"        # Sydney — closest to Adelaide; pick your own
+
+[build]
+
+[env]
+  TIMEGUESSR_DB = "/data/timeguessr.db"
+
+[[mounts]]
+  source = "timeguessr_data"
+  destination = "/data"
+
+# No HTTP service needed — this bot only makes outbound connections to
+# Discord, so we don't declare [[services]] / [http_service] at all.
+
+[processes]
+  app = "python timeguessr_bot.py"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
