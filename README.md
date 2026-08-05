@@ -1,11 +1,10 @@
-# TimeGuessr Scorekeeper Bot
+# TimeGuessr + MapTap Scorekeeper Bot
 
-Watches a Discord channel for daily TimeGuessr result posts and keeps a
-leaderboard, win counts, and per-user stats — automatically, from the results
-people already paste in.
+Watches a Discord channel for daily result posts and keeps a leaderboard,
+win counts, and per-user stats — automatically, from the results people
+already paste. Supports two games:
 
-It's tuned to this exact format:
-
+**TimeGuessr** — keyed by game number:
 ```
 TimeGuessr #1161 — 41,255/50,000
 1️⃣ 🏆9,179 · 📅 4y · 🌍 3.3mi
@@ -16,9 +15,20 @@ TimeGuessr #1161 — 41,255/50,000
 https://timeguessr.com
 ```
 
-Any message containing that pattern gets parsed — the bot reacts ✅ once it's
-logged, or ♻️ if that person already logged that game number (first
-submission wins, so no double-dipping by re-pasting).
+**MapTap** — keyed by date instead of a number; the emoji tagging each guess
+varies (not a fixed scale), so the bot stores and reproduces whichever emoji
+was actually posted rather than assuming what it means. The final score
+includes bonus/streak math and is **not** the sum of the guesses, so it's
+tracked separately:
+```
+[www.maptap.gg](https://www.maptap.gg) August 4
+99🎯 100🎯 91👑 97🔥 89👑
+Final score: 939
+```
+
+Any message matching either pattern gets parsed — the bot reacts ✅ once it's
+logged, or ♻️ if that person already logged that game/day (first submission
+wins, so no double-dipping by re-pasting).
 
 ## Setup
 
@@ -26,7 +36,10 @@ submission wins, so no double-dipping by re-pasting).
    - Go to https://discord.com/developers/applications → New Application
    - Bot tab → Reset Token, copy it somewhere safe
    - Under **Privileged Gateway Intents**, enable **MESSAGE CONTENT INTENT**
-     (required — without this the bot can't read message text)
+     and **SERVER MEMBERS INTENT** (both required — without them Discord
+     refuses the connection outright with a `PrivilegedIntentsRequired`
+     error. Message Content lets the bot read the posts; Server Members
+     lets `@user` arguments in commands like `!stats @user` resolve.)
 
 2. **Invite it to your server**
    - OAuth2 → URL Generator → scope `bot`
@@ -84,33 +97,62 @@ push code changes or check logs.
 
 ## Commands
 
+### TimeGuessr
 | Command | What it does |
 |---|---|
 | `!leaderboard [n]` | Ranked by average score (default top 10) |
 | `!wins [n]` | Most daily wins — highest score that day, ties don't count |
-| `!stats @user` | One person's games played / avg / best / worst / total |
+| `!stats @user` | Games played / avg / best / worst / total |
 | `!history @user [n]` | A user's last n games (default 10) |
 | `!game 1161` | Everyone's score for a specific game number, ranked |
 
+### MapTap
+| Command | What it does |
+|---|---|
+| `!mtleaderboard [n]` | Ranked by average final score |
+| `!mtwins [n]` | Most daily wins — highest final score that day, ties don't count |
+| `!mtstats @user` | Games played / avg / best / worst / total, plus average per guess position |
+| `!mthistory @user [n]` | A user's last n days, with per-guess breakdown and original emoji |
+| `!mtday August 4` | Everyone's results for a specific date (also accepts `2026-08-04`) |
+| `!mtguess 1` | Average score for guess #1, across everyone, all days |
+| `!mtguess 1 August 4` | Average score for guess #1, just that day |
+
+### Both games
+| Command | What it does |
+|---|---|
+| `!backfill [#channel] [limit]` | Retroactively scan a channel's history and log any results found (requires "Manage Server" permission) |
+
 ## How duplicates & edge cases are handled
 
-- **Duplicate posts**: keyed on `(user, game_number)` — re-pasting the same
-  result, or pasting an old one twice, won't inflate stats.
-- **Ties for the win**: if two people post the same top score for a game,
-  nobody gets credited with a win that day (rather than picking one
-  arbitrarily).
+- **Duplicate posts**: TimeGuessr is keyed on `(user, game_number)`, MapTap
+  on `(user, date)` — re-pasting the same result won't inflate stats.
+- **Ties for the win**: if two people post the same top score, nobody gets
+  credited with a win that day (rather than picking one arbitrarily).
+- **MapTap dates without a year**: MapTap's posts just say "August 4" with
+  no year, so the bot infers the year from the message's own timestamp
+  (correcting for the rare case a post lands right at a Dec/Jan boundary).
+- **MapTap emoji**: the emoji per guess isn't assumed to mean anything
+  specific — whatever glyph was posted next to a score is stored and
+  reproduced as-is in `!mthistory` / `!mtday`. Averages just show the
+  number, since averaging emoji isn't meaningful.
+- **MapTap final score ≠ sum of guesses**: it's a *weighted* sum — each
+  guess position carries a multiplier of `[1, 1, 2, 3, 3]` for guesses 1
+  through 5 (confirmed against a real post: `99×1 + 100×1 + 91×2 + 97×3 +
+  89×3 = 939`). The bot still trusts the final score as posted rather than
+  computing it, but logs a warning if the weighted sum doesn't match — a
+  cheap sanity check that catches parsing bugs (wrong numbers picked up)
+  without silently trusting or discarding anything.
 - **Multiple channels**: by default the bot scrapes results posted anywhere
   it can read; set `TIMEGUESSR_CHANNEL_ID` to lock it to your results
   channel if others post there too.
-- **Per-round data** (year/distance accuracy) is stored as raw text
-  alongside each result (`rounds_json` column) even though the built-in
-  commands only surface total-score stats — it's there if you want to add
-  "best geography" / "best year-guessing" leaderboards later.
+- **Retroactive backfill**: if the bot joined your server (or was turned on)
+  after people had already been posting results, run `!backfill` in the
+  channel with the history — it walks every past message once and logs
+  anything it recognizes, for both games at once.
 
 ## Extending it
 
 Everything reads from a plain SQLite file (`timeguessr.db`), so you can query
 it directly (`sqlite3 timeguessr.db`) or add new bot commands that pull from
-the `results` table without touching the parsing logic. A natural next step
-given the stored per-round JSON: a `!geography` or `!yearguesser` leaderboard
-that ranks by average distance/year-accuracy instead of total score.
+the `results` / `maptap_results` tables without touching the parsing logic.
+
