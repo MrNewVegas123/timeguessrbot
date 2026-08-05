@@ -15,11 +15,11 @@ TimeGuessr #1161 — 41,255/50,000
 https://timeguessr.com
 ```
 
-**MapTap** — keyed by date instead of a number; the emoji tagging each guess
-varies (not a fixed scale), so the bot stores and reproduces whichever emoji
-was actually posted rather than assuming what it means. The final score
-includes bonus/streak math and is **not** the sum of the guesses, so it's
-tracked separately:
+**MapTap** — keyed by date instead of a number; which emoji tags each guess
+depends on some scoring threshold we don't know, so the bot stores and
+reproduces whichever emoji was actually posted rather than guessing at the
+goalposts. The final score includes bonus/streak math and is **not** the
+sum of the guesses, so it's tracked separately:
 ```
 [www.maptap.gg](https://www.maptap.gg) August 4
 99🎯 100🎯 91👑 97🔥 89👑
@@ -142,6 +142,20 @@ push code changes or check logs.
   computing it, but logs a warning if the weighted sum doesn't match — a
   cheap sanity check that catches parsing bugs (wrong numbers picked up)
   without silently trusting or discarding anything.
+- **Perfect score (1000)**: max-per-guess (100) × sum of the multipliers
+  (10) = 1000, so a perfect run is a known, valid target score. If a post
+  claims 1000 but the guess-breakdown line doesn't parse into 5 numbers
+  (e.g. MapTap renders an all-perfect result differently), the bot still
+  accepts it and records the final score — everywhere else, a post with
+  no parseable guesses is rejected outright, but 1000 gets the benefit of
+  the doubt. Per-guess stats just won't have data for that day in that
+  case, since there was nothing to parse.
+- **Score collisions**: nothing is keyed on score at all — the uniqueness
+  constraint is `(user, date)`. Two different people (or even two
+  completely different guess combinations) landing on the same final
+  score are stored as fully separate rows; the only place scores get
+  compared is win detection, where a tie means nobody's credited with
+  that day's win, on purpose.
 - **Multiple channels**: by default the bot scrapes results posted anywhere
   it can read; set `TIMEGUESSR_CHANNEL_ID` to lock it to your results
   channel if others post there too.
