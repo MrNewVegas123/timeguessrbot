@@ -126,10 +126,12 @@ def parse_timeguessr_message(content: str) -> ParsedResult | None:
 # are on one line each tagged with an emoji reflecting some scoring
 # threshold — the scale itself is presumably fixed on MapTap's end, we
 # just don't know where the cutoffs are, so we store and reproduce
-# whichever emoji was posted rather than guessing at the goalposts. The final score isn't a plain sum of the
-# 5 guesses — it's a weighted sum, with each guess position carrying a
-# multiplier: [1, 1, 2, 3, 3] for guesses 1-5. Confirmed against the
-# sample above: 99×1 + 100×1 + 91×2 + 97×3 + 89×3 = 939.
+# whichever emoji was posted rather than guessing at the goalposts.
+#
+# The final score isn't a plain sum of the 5 guesses — it's a weighted
+# sum, with each guess position carrying a multiplier: [1, 1, 2, 3, 3]
+# for guesses 1-5. Confirmed against the sample above:
+# 99×1 + 100×1 + 91×2 + 97×3 + 89×3 = 939.
 #
 # We still parse final_score directly off the post (it's right there,
 # no need to trust our own arithmetic over what MapTap itself reported),
@@ -141,7 +143,6 @@ def parse_timeguessr_message(content: str) -> ParsedResult | None:
 # --------------------------------------------------------------------------
 
 MAPTAP_MULTIPLIERS = [1, 1, 2, 3, 3]  # index 0 = guess #1, etc.
-MAPTAP_MAX_SCORE = 1000  # perfect run: 100 per guess × sum(multipliers) = 100 × 10
 
 MAPTAP_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")  # markdown [text](url) -> text
 
@@ -241,18 +242,6 @@ def parse_maptap_message(content: str, reference_dt) -> ParsedMaptapResult | Non
         )
 
     if not guesses:
-        if final_score == MAPTAP_MAX_SCORE:
-            # A perfect run (1000) is the one case we accept even without a
-            # parsed guess breakdown — if MapTap renders an all-perfect post
-            # differently (e.g. no plain numbers on the guess line), we'd
-            # rather trust the final score outright than throw the whole
-            # result away. We're taking the player's word for it here.
-            log.info(
-                "MapTap perfect score (1000) accepted for %s with no parsed guess "
-                "breakdown — trusting final score as posted.",
-                game_date.isoformat(),
-            )
-            return ParsedMaptapResult(game_date, final_score, [], expected_score=final_score)
         return None
 
     expected_score = None
@@ -726,6 +715,15 @@ async def on_message(message: discord.Message):
     mt_status, mt_parsed = try_log_maptap_message(message)
     if mt_status == "inserted":
         await message.add_reaction("✅")
+        if mt_parsed.expected_score is not None and mt_parsed.expected_score != mt_parsed.final_score:
+            await message.add_reaction("⚠️")
+            await message.reply(
+                f"{message.author.mention} heads up — your posted final score "
+                f"(**{mt_parsed.final_score:,}**) doesn't match what your guesses add up to "
+                f"with the standard weighting (**{mt_parsed.expected_score:,}**). "
+                f"Still logged as posted — just flagging it as non-compliant.",
+                mention_author=True,
+            )
     elif mt_status == "duplicate":
         await message.add_reaction("♻️")
         await message.reply(

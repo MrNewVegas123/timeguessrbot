@@ -138,18 +138,14 @@ push code changes or check logs.
 - **MapTap final score ≠ sum of guesses**: it's a *weighted* sum — each
   guess position carries a multiplier of `[1, 1, 2, 3, 3]` for guesses 1
   through 5 (confirmed against a real post: `99×1 + 100×1 + 91×2 + 97×3 +
-  89×3 = 939`). The bot still trusts the final score as posted rather than
-  computing it, but logs a warning if the weighted sum doesn't match — a
-  cheap sanity check that catches parsing bugs (wrong numbers picked up)
-  without silently trusting or discarding anything.
-- **Perfect score (1000)**: max-per-guess (100) × sum of the multipliers
-  (10) = 1000, so a perfect run is a known, valid target score. If a post
-  claims 1000 but the guess-breakdown line doesn't parse into 5 numbers
-  (e.g. MapTap renders an all-perfect result differently), the bot still
-  accepts it and records the final score — everywhere else, a post with
-  no parseable guesses is rejected outright, but 1000 gets the benefit of
-  the doubt. Per-guess stats just won't have data for that day in that
-  case, since there was nothing to parse.
+  89×3 = 939`). The bot still logs the final score as posted rather than
+  computing it, but if the weighted sum doesn't match, it reacts ⚠️ and
+  replies tagging the poster to flag it as non-compliant — the result
+  stays logged either way (honor system), this is just a heads-up, not
+  a rejection. Applies uniformly to every score, including 1000 — no
+  score is exempt from the check. This tag-and-flag only happens on live
+  posts, not during `!backfill` — a bulk historical scan just logs
+  mismatches server-side instead of pinging people for old games.
 - **Score collisions**: nothing is keyed on score at all — the uniqueness
   constraint is `(user, date)`. Two different people (or even two
   completely different guess combinations) landing on the same final
